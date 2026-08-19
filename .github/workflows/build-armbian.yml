@@ -55,7 +55,7 @@ jobs:
       - name: Build image
         working-directory: armbian-build
         run: |
-          sudo ./compile.sh \
+          ./compile.sh \
             BOARD=${{ inputs.board }} \
             BRANCH=${{ inputs.branch }} \
             RELEASE=${{ inputs.release }} \
