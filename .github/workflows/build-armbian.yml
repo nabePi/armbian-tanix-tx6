@@ -1,0 +1,96 @@
+name: Build Armbian Image (Tanix TX6)
+
+on:
+  workflow_dispatch:
+    inputs:
+      board:
+        description: "BOARD"
+        required: true
+        default: "tanix-tx6"
+      branch:
+        description: "BRANCH (current/edge/legacy/vendor)"
+        required: true
+        default: "current"
+      release:
+        description: "RELEASE (Ubuntu/Debian/Armbian codename)"
+        required: true
+        default: "resolute"
+      build_minimal:
+        description: "BUILD_MINIMAL"
+        required: true
+        default: "no"
+      build_desktop:
+        description: "BUILD_DESKTOP"
+        required: true
+        default: "no"
+      kernel_configure:
+        description: "KERNEL_CONFIGURE"
+        required: true
+        default: "no"
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 360
+    steps:
+      - name: Checkout this repo
+        uses: actions/checkout@v4
+
+      - name: Free up disk space
+        uses: jlumbroso/free-disk-space@v1.3.1
+        with:
+          tool-cache: false
+          android: true
+          dotnet: true
+          haskell: true
+          large-packages: true
+          swap-storage: false
+
+      - name: Clone Armbian build framework
+        run: git clone --depth=1 https://github.com/armbian/build.git armbian-build
+
+      - name: Build image
+        working-directory: armbian-build
+        run: |
+          sudo ./compile.sh \
+            BOARD=${{ inputs.board }} \
+            BRANCH=${{ inputs.branch }} \
+            RELEASE=${{ inputs.release }} \
+            BUILD_MINIMAL=${{ inputs.build_minimal }} \
+            BUILD_DESKTOP=${{ inputs.build_desktop }} \
+            KERNEL_CONFIGURE=${{ inputs.kernel_configure }}
+
+      - name: Locate build artifact
+        id: artifact
+        working-directory: armbian-build
+        run: |
+          set -euo pipefail
+          IMAGE=$(find output/images -maxdepth 1 -type f \( -name '*.img' -o -name '*.img.xz' -o -name '*.img.gz' -o -name '*.img.sha' \) ! -name '*.sha' | sort | head -n1)
+          if [ -z "$IMAGE" ]; then
+            echo "No image found under output/images" >&2
+            find output/images -maxdepth 1 -type f >&2 || true
+            exit 1
+          fi
+          echo "path=armbian-build/$IMAGE" >> "$GITHUB_OUTPUT"
+          echo "name=$(basename "$IMAGE")" >> "$GITHUB_OUTPUT"
+
+      - name: Publish GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: build-${{ github.run_number }}
+          name: "Tanix TX6 ${{ inputs.release }} (${{ inputs.build_minimal == 'yes' && 'minimal' || 'server' }})"
+          body: |
+            Automated Armbian build.
+
+            - BOARD: ${{ inputs.board }}
+            - BRANCH: ${{ inputs.branch }}
+            - RELEASE: ${{ inputs.release }}
+            - BUILD_MINIMAL: ${{ inputs.build_minimal }}
+            - BUILD_DESKTOP: ${{ inputs.build_desktop }}
+            - KERNEL_CONFIGURE: ${{ inputs.kernel_configure }}
+          files: ${{ steps.artifact.outputs.path }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
